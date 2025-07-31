@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Order Status Checker (QuaggaJS)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dynamsoft Order Scanner</title>
+  <script src="https://cdn.jsdelivr.net/npm/dynamsoft-javascript-barcode@9.6.30/dist/dbr.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script src="https://unpkg.com/@ericblade/quagga2@1.2.6/dist/quagga.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -15,9 +15,9 @@
     video, canvas {
       width: 100%;
       max-width: 400px;
+      margin: 10px auto;
       border-radius: 10px;
       border: 1px solid #ccc;
-      margin-top: 10px;
     }
     .result {
       margin-top: 20px;
@@ -33,99 +33,77 @@
   </style>
 </head>
 <body>
-  <h1>📦 Order Status Checker (Barcode Scanner)</h1>
+  <h1>📦 Order Status Checker (Dynamsoft)</h1>
 
-  <label>Upload Excel File (Scheduled Orders):</label><br />
-  <input type="file" id="excelInput" accept=".xlsx, .xls" /><br /><br />
+  <label>Upload Excel File (Scheduled Orders):</label><br/>
+  <input type="file" id="excelInput" accept=".xlsx, .xls" /><br/><br/>
 
   <button id="startScan">📷 Start Scanning</button>
-  <div id="scanner-container">
-    <div id="interactive" class="viewport"></div>
-  </div>
-
-  <div class="result" id="result">📡 Waiting to scan...</div>
+  <div id="scanner-container"></div>
+  <div class="result" id="result">📡 Waiting for scan...</div>
 
   <script>
     const scheduledOrders = new Set();
     const resultDiv = document.getElementById("result");
+    let scanner = null;
     let lastScanned = "";
 
     // Load Excel
     document.getElementById("excelInput").addEventListener("change", (event) => {
       const file = event.target.files[0];
       const reader = new FileReader();
-
       reader.onload = function (e) {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: "array" });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json(sheet);
-
         scheduledOrders.clear();
-        json.forEach((row) => {
+        json.forEach(row => {
           const status = row["__EMPTY_9"]?.toString().trim().toLowerCase();
           const orderNumber = row["__EMPTY_7"]?.toString().trim();
           if (status === "scheduled" && orderNumber) {
             scheduledOrders.add(orderNumber);
           }
         });
-
         alert("✅ Excel loaded with " + scheduledOrders.size + " scheduled orders.");
       };
-
       reader.readAsArrayBuffer(file);
     });
 
-    // Start scanning
-    document.getElementById("startScan").addEventListener("click", () => {
-      if (Quagga.initialized) {
-        Quagga.stop();
-      }
+    document.getElementById("startScan").addEventListener("click", async () => {
+      if (scanner) return; // already scanning
 
-      Quagga.init({
-        inputStream: {
-          name: "Live",
-          type: "LiveStream",
-          target: document.querySelector("#interactive"),
-          constraints: {
-            facingMode: "environment" // rear camera
+      Dynamsoft.DBR.BarcodeScanner.license = "DLS2eyJoYW5kc2hha2VDb2RlIjoiMTA0MzQ4NzgyLU1UQTBNelE0TnpneUxYZGxZaTFVY21saGJGQnliMm8iLCJtYWluU2VydmVyVVJMIjoiaHR0cHM6Ly9tZGxzLmR5bmFtc29mdG9ubGluZS5jb20iLCJvcmdhbml6YXRpb25JRCI6IjEwNDM0ODc4MiIsInN0YW5kYnlTZXJ2ZXJVUkwiOiJodHRwczovL3NkbHMuZHluYW1zb2Z0b25saW5lLmNvbSIsImNoZWNrQ29kZSI6LTczNDgyNTc3NH0="; // 🔑 Replace with your key
+      try {
+        scanner = await Dynamsoft.DBR.BarcodeScanner.createInstance();
+        await scanner.updateRuntimeSettings("speed");
+        await scanner.setVideoSettings({ video: { facingMode: "environment" } });
+        await scanner.setUIElement(document.getElementById("scanner-container"));
+        await scanner.open();
+
+        scanner.onFrameRead = results => {
+          for (let result of results) {
+            const code = result.barcodeText.trim();
+            if (code === lastScanned) return;
+            lastScanned = code;
+
+            const isScheduled = scheduledOrders.has(code);
+            resultDiv.innerHTML = isScheduled
+              ? `<span class="scheduled">✅ Order #${code} is Scheduled.</span>`
+              : `<span class="not-scheduled">❌ Order #${code} is NOT Scheduled.</span>`;
+
+            setTimeout(() => {
+              resultDiv.innerText = "📷 Scanning...";
+              lastScanned = "";
+            }, 2000);
+            break;
           }
-        },
-        decoder: {
-          readers: ["code_128_reader"] // FedEx barcode
-        },
-        locate: true
-      }, function (err) {
-        if (err) {
-          console.error("Quagga init error:", err);
-          resultDiv.innerHTML = '<span class="not-scheduled">❌ Failed to initialize camera.</span>';
-          return;
-        }
+        };
 
-        Quagga.start();
-        Quagga.initialized = true;
-        resultDiv.innerText = "📡 Scanning for barcodes...";
-      });
-
-      Quagga.onDetected((data) => {
-        const code = data.codeResult.code.trim();
-
-        // Avoid repeat reads
-        if (code === lastScanned) return;
-        lastScanned = code;
-        console.log("Scanned:", code);
-
-        const isScheduled = scheduledOrders.has(code);
-        resultDiv.innerHTML = isScheduled
-          ? `<span class="scheduled">✅ Order #${code} is Scheduled.</span>`
-          : `<span class="not-scheduled">❌ Order #${code} is NOT Scheduled.</span>`;
-
-        // Reset after delay to allow next scan
-        setTimeout(() => {
-          resultDiv.innerText = "📡 Scanning for barcodes...";
-          lastScanned = "";
-        }, 2000);
-      });
+      } catch (ex) {
+        console.error(ex);
+        resultDiv.innerHTML = '<span class="not-scheduled">❌ Failed to start scanner.</span>';
+      }
     });
   </script>
 </body>
