@@ -2,83 +2,62 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Order Lookup</title>
+  <title>Scheduled Order Lookup</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-    }
-    input, button {
-      padding: 8px;
-      margin: 10px 0;
-    }
-    #status {
-      margin-top: 10px;
-      font-weight: bold;
-    }
-  </style>
 </head>
 <body>
-  <h2>Check If Sales Order Is Scheduled</h2>
+  <h2>Upload Excel File</h2>
   <input type="file" id="excelFile" accept=".xlsx, .xls" />
-  <br />
+  <br /><br />
+  <h3>Enter Sales Order Number</h3>
   <input type="text" id="orderInput" placeholder="Enter order number..." />
   <button onclick="checkOrder()">Check</button>
-  <div id="status"></div>
+  <p id="result"></p>
 
   <script>
-    let scheduledOrders = new Set();
+    let scheduledOrders = [];
 
     document.getElementById('excelFile').addEventListener('change', function (e) {
-      const file = e.target.files[0];
-      if (!file) return;
-
       const reader = new FileReader();
       reader.onload = function (e) {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        const sheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
         console.log('🟡 Previewing first 5 rows:', rows.slice(0, 5));
 
-        scheduledOrders.clear();
-
+        scheduledOrders = []; // Reset
         for (let i = 0; i < rows.length; i++) {
           const row = rows[i];
-          const orderNum = row[4];  // Column E
-          const status = row[9];    // Column J
+          const order = row[4];  // Column E
+          const scheduledDate = row[5]; // Column F
+          const status = row[9];  // Column J
 
-          console.log(`Row ${i + 1} - Order: ${orderNum}, Status: ${status}`);
+          if (typeof order === 'string' || typeof order === 'number') {
+            console.log(`Row ${i + 1} - Order: ${order}, Status: ${status}, Date: ${scheduledDate}`);
+          }
 
-          if (
-            orderNum &&
-            status &&
-            typeof status === 'string' &&
-            status.trim().toLowerCase() === 'scheduled'
-          ) {
-            scheduledOrders.add(orderNum.toString().trim());
+          if (status === 'Scheduled' && order) {
+            scheduledOrders.push({ order: String(order), date: scheduledDate });
           }
         }
 
-        console.log(`✅ Scheduled orders loaded: ${scheduledOrders.size}`);
+        console.log(`✅ Scheduled orders loaded: ${scheduledOrders.length}`);
       };
-      reader.readAsArrayBuffer(file);
+      reader.readAsArrayBuffer(e.target.files[0]);
     });
 
     function checkOrder() {
       const input = document.getElementById('orderInput').value.trim();
-      const result = document.getElementById('status');
+      const match = scheduledOrders.find(entry => entry.order === input);
+      const resultEl = document.getElementById('result');
 
-      if (scheduledOrders.has(input)) {
-        result.textContent = `✅ Order ${input} is scheduled.`;
-        result.style.color = 'green';
+      if (match) {
+        resultEl.innerHTML = `✅ <strong>Order #${match.order}</strong> is <strong>Scheduled</strong> for <strong>${match.date}</strong>`;
       } else {
-        result.textContent = `❌ Order ${input} is not scheduled.`;
-        result.style.color = 'red';
+        resultEl.innerHTML = `❌ Order not found or not scheduled.`;
       }
     }
   </script>
