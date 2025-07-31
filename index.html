@@ -2,119 +2,85 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Order Status Checker</title>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Order Lookup</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
-      padding: 1.5em;
-      max-width: 600px;
-      margin: auto;
-      text-align: center;
+      padding: 20px;
     }
-    input[type="text"] {
-      padding: 10px;
-      width: 100%;
-      max-width: 300px;
-      font-size: 1.2em;
+    input, button {
+      padding: 8px;
+      margin: 10px 0;
+    }
+    #status {
       margin-top: 10px;
-    }
-    input[type="file"] {
-      margin-top: 10px;
-    }
-    .result {
-      margin-top: 20px;
-      font-size: 1.3em;
       font-weight: bold;
-    }
-    .scheduled {
-      color: green;
-    }
-    .not-scheduled {
-      color: red;
-    }
-    ul.history {
-      list-style: none;
-      padding: 0;
-      margin-top: 20px;
-      text-align: left;
-    }
-    ul.history li {
-      padding: 5px 0;
-      border-bottom: 1px solid #ddd;
-    }
-    .tag {
-      font-weight: bold;
-      padding-left: 10px;
     }
   </style>
 </head>
 <body>
-  <h1>📦 Order Status Checker</h1>
-
-  <label>Upload Excel File (Scheduled Orders):</label><br />
-  <input type="file" id="excelInput" accept=".xlsx, .xls" /><br /><br />
-
-  <label>Enter or Scan Order Number:</label><br />
-  <input type="text" id="orderInput" placeholder="Enter order number..." autofocus /><br />
-
-  <div class="result" id="result">📡 Waiting for input...</div>
-
-  <ul class="history" id="historyList"></ul>
+  <h2>Check If Sales Order Is Scheduled</h2>
+  <input type="file" id="excelFile" accept=".xlsx, .xls" />
+  <br />
+  <input type="text" id="orderInput" placeholder="Enter order number..." />
+  <button onclick="checkOrder()">Check</button>
+  <div id="status"></div>
 
   <script>
-    const scheduledOrders = new Set();
-    const resultDiv = document.getElementById("result");
-    const input = document.getElementById("orderInput");
-    const historyList = document.getElementById("historyList");
+    let scheduledOrders = new Set();
 
-    // Handle Excel upload
-    document.getElementById("excelInput").addEventListener("change", function (event) {
-      const file = event.target.files[0];
+    document.getElementById('excelFile').addEventListener('change', function (e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
       const reader = new FileReader();
-
       reader.onload = function (e) {
         const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: "array" });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(sheet);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+        console.log('🟡 Previewing first 5 rows:', rows.slice(0, 5));
 
         scheduledOrders.clear();
 
-        json.forEach(row => {
-          const status = row["__EMPTY_9"]?.toString().trim().toLowerCase();
-          const orderNumber = row["__EMPTY_7"]?.toString().trim();
-          if (status === "scheduled" && orderNumber) {
-            scheduledOrders.add(orderNumber);
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i];
+          const orderNum = row[4];  // Column E
+          const status = row[9];    // Column J
+
+          console.log(`Row ${i + 1} - Order: ${orderNum}, Status: ${status}`);
+
+          if (
+            orderNum &&
+            status &&
+            typeof status === 'string' &&
+            status.trim().toLowerCase() === 'scheduled'
+          ) {
+            scheduledOrders.add(orderNum.toString().trim());
           }
-        });
+        }
 
-        alert("✅ Excel loaded with " + scheduledOrders.size + " scheduled orders.");
+        console.log(`✅ Scheduled orders loaded: ${scheduledOrders.size}`);
       };
-
       reader.readAsArrayBuffer(file);
     });
 
-    // Check order number on Enter key
-    input.addEventListener("keydown", function (e) {
-      if (e.key === "Enter") {
-        const value = input.value.trim();
-        if (!value) return;
+    function checkOrder() {
+      const input = document.getElementById('orderInput').value.trim();
+      const result = document.getElementById('status');
 
-        const isScheduled = scheduledOrders.has(value);
-        resultDiv.innerHTML = isScheduled
-          ? `<span class="scheduled">✅ Order #${value} is Scheduled.</span>`
-          : `<span class="not-scheduled">❌ Order #${value} is NOT Scheduled.</span>`;
-
-        // Append to history
-        const li = document.createElement("li");
-        li.innerHTML = `#${value} <span class="tag ${isScheduled ? 'scheduled' : 'not-scheduled'}">${isScheduled ? 'Scheduled' : 'Not Scheduled'}</span>`;
-        historyList.prepend(li);
-
-        input.value = "";
+      if (scheduledOrders.has(input)) {
+        result.textContent = `✅ Order ${input} is scheduled.`;
+        result.style.color = 'green';
+      } else {
+        result.textContent = `❌ Order ${input} is not scheduled.`;
+        result.style.color = 'red';
       }
-    });
+    }
   </script>
 </body>
 </html>
