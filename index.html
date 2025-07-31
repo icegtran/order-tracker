@@ -12,14 +12,12 @@
       padding: 20px;
       text-align: center;
     }
-    #video-container {
-      margin: 20px auto;
-      max-width: 400px;
-    }
     video {
       width: 100%;
-      border-radius: 8px;
+      max-width: 400px;
       border: 1px solid #ccc;
+      border-radius: 10px;
+      margin-top: 10px;
     }
     .result {
       margin-top: 20px;
@@ -32,10 +30,6 @@
     .not-scheduled {
       color: red;
     }
-    button {
-      padding: 10px 20px;
-      font-size: 16px;
-    }
   </style>
 </head>
 <body>
@@ -45,23 +39,20 @@
   <input type="file" id="excelInput" accept=".xlsx, .xls" /><br/><br/>
 
   <button id="startScan">📷 Start Scanning</button>
-
-  <div id="video-container">
-    <video id="scanner-preview" autoplay muted playsinline></video>
-  </div>
-
-  <div class="result" id="result"></div>
+  <video id="preview" autoplay muted playsinline></video>
+  <div class="result" id="result">📡 Waiting to scan...</div>
 
   <script>
     const scheduledOrders = new Set();
     const resultDiv = document.getElementById('result');
-    const previewElem = document.getElementById('scanner-preview');
+    const preview = document.getElementById('preview');
+    let scanning = false;
+    let codeReader;
 
-    // Load scheduled orders from Excel
+    // Load Excel
     document.getElementById('excelInput').addEventListener('change', (event) => {
       const file = event.target.files[0];
       const reader = new FileReader();
-
       reader.onload = function (e) {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
@@ -79,45 +70,56 @@
 
         alert('✅ Excel loaded with ' + scheduledOrders.size + ' scheduled orders.');
       };
-
       reader.readAsArrayBuffer(file);
     });
 
-    // Start scanner
     document.getElementById('startScan').addEventListener('click', async () => {
-      resultDiv.innerHTML = '📡 Initializing camera...';
+      if (scanning) return;
 
-      const codeReader = new ZXing.BrowserBarcodeReader();
+      resultDiv.innerText = '📡 Starting camera...';
+
       try {
-        const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
-        if (devices.length === 0) {
-          resultDiv.innerHTML = '<span class="not-scheduled">❌ No camera devices found.</span>';
-          return;
-        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+          audio: false
+        });
+        preview.srcObject = stream;
 
-        const rearCamera = devices.find(d => d.label.toLowerCase().includes('back')) || devices[devices.length - 1];
+        codeReader = new ZXing.BrowserMultiFormatReader();
+        scanning = true;
 
-        await codeReader.decodeFromVideoDevice(rearCamera.deviceId, previewElem, (result, err) => {
-          if (result) {
+        const scanLoop = async () => {
+          if (!scanning) return;
+
+          try {
+            const result = await codeReader.decodeOnceFromVideoElement(preview);
             const scanned = result.text.trim();
-            console.log("Scanned barcode:", scanned);
+            console.log("Scanned:", scanned);
 
             const isScheduled = scheduledOrders.has(scanned);
             resultDiv.innerHTML = isScheduled
               ? `<span class="scheduled">✅ Order #${scanned} is Scheduled.</span>`
               : `<span class="not-scheduled">❌ Order #${scanned} is NOT Scheduled.</span>`;
 
-            codeReader.reset(); // Auto-stop camera after successful scan
-          }
+            // Wait 2 seconds, then resume scanning
+            setTimeout(scanLoop, 2000);
 
-          if (err && !(err instanceof ZXing.NotFoundException)) {
-            console.error(err);
+          } catch (err) {
+            if (!(err instanceof ZXing.NotFoundException)) {
+              console.error(err);
+              resultDiv.innerHTML = '<span class="not-scheduled">❌ Scan error occurred.</span>';
+            } else {
+              // Try again if nothing was found
+              setTimeout(scanLoop, 200);
+            }
           }
-        });
+        };
+
+        scanLoop();
 
       } catch (err) {
         console.error('Camera access error:', err);
-        resultDiv.innerHTML = '<span class="not-scheduled">❌ Camera access denied or not supported.</span>';
+        resultDiv.innerHTML = '<span class="not-scheduled">❌ Camera access denied or failed.</span>';
       }
     });
   </script>
