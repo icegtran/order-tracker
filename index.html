@@ -10,15 +10,16 @@
     body {
       font-family: Arial, sans-serif;
       padding: 20px;
+      text-align: center;
     }
     #video-container {
-      margin-top: 15px;
+      margin: 20px auto;
+      max-width: 400px;
     }
     video {
       width: 100%;
-      max-width: 400px;
-      border: 1px solid #ccc;
       border-radius: 8px;
+      border: 1px solid #ccc;
     }
     .result {
       margin-top: 20px;
@@ -31,15 +32,20 @@
     .not-scheduled {
       color: red;
     }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+    }
   </style>
 </head>
 <body>
   <h1>📦 Order Status Checker</h1>
 
-  <label>Upload Excel File (Scheduled Orders):</label>
+  <label>Upload Excel File (Scheduled Orders):</label><br/>
   <input type="file" id="excelInput" accept=".xlsx, .xls" /><br/><br/>
 
   <button id="startScan">📷 Start Scanning</button>
+
   <div id="video-container">
     <video id="scanner-preview" autoplay muted playsinline></video>
   </div>
@@ -50,9 +56,8 @@
     const scheduledOrders = new Set();
     const resultDiv = document.getElementById('result');
     const previewElem = document.getElementById('scanner-preview');
-    let codeReader;
 
-    // Load Excel file
+    // Load scheduled orders from Excel
     document.getElementById('excelInput').addEventListener('change', (event) => {
       const file = event.target.files[0];
       const reader = new FileReader();
@@ -78,13 +83,21 @@
       reader.readAsArrayBuffer(file);
     });
 
-    // Start barcode scanning
+    // Start scanner
     document.getElementById('startScan').addEventListener('click', async () => {
       resultDiv.innerHTML = '📡 Initializing camera...';
 
       const codeReader = new ZXing.BrowserBarcodeReader();
       try {
-        const controls = await codeReader.decodeFromVideoDevice(null, previewElem, (result, err) => {
+        const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
+        if (devices.length === 0) {
+          resultDiv.innerHTML = '<span class="not-scheduled">❌ No camera devices found.</span>';
+          return;
+        }
+
+        const rearCamera = devices.find(d => d.label.toLowerCase().includes('back')) || devices[devices.length - 1];
+
+        await codeReader.decodeFromVideoDevice(rearCamera.deviceId, previewElem, (result, err) => {
           if (result) {
             const scanned = result.text.trim();
             console.log("Scanned barcode:", scanned);
@@ -94,12 +107,17 @@
               ? `<span class="scheduled">✅ Order #${scanned} is Scheduled.</span>`
               : `<span class="not-scheduled">❌ Order #${scanned} is NOT Scheduled.</span>`;
 
-            codeReader.reset(); // Auto-stop
+            codeReader.reset(); // Auto-stop camera after successful scan
+          }
+
+          if (err && !(err instanceof ZXing.NotFoundException)) {
+            console.error(err);
           }
         });
-      } catch (e) {
-        console.error('Error starting barcode scanner:', e);
-        resultDiv.innerHTML = '<span class="not-scheduled">❌ Failed to access camera.</span>';
+
+      } catch (err) {
+        console.error('Camera access error:', err);
+        resultDiv.innerHTML = '<span class="not-scheduled">❌ Camera access denied or not supported.</span>';
       }
     });
   </script>
