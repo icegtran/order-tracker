@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Order Status Checker</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -40,6 +40,7 @@
   <script>
     let scheduledOrders = new Set();
 
+    // Load scheduled orders from Excel
     document.getElementById('excelInput').addEventListener('change', (event) => {
       const file = event.target.files[0];
       const reader = new FileReader();
@@ -52,20 +53,43 @@
 
         scheduledOrders.clear();
         json.forEach(row => {
-  const status = row['__EMPTY_9']?.toString().trim().toLowerCase();
-  const orderNumber = row['__EMPTY_7']?.toString().trim();
+          const status = row['__EMPTY_9']?.toString().trim().toLowerCase();
+          const orderNumber = row['__EMPTY_7']?.toString().trim();
 
-  if (status === 'scheduled' && orderNumber) {
-    scheduledOrders.add(orderNumber);
-  }
-});
-
+          if (status === 'scheduled' && orderNumber) {
+            scheduledOrders.add(orderNumber);
+          }
+        });
 
         alert('✅ Excel loaded with ' + scheduledOrders.size + ' scheduled orders.');
       };
 
       reader.readAsArrayBuffer(file);
     });
+
+    // Rotate image 90 degrees for better OCR on vertical numbers
+    function rotateImage(file) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          img.src = e.target.result;
+        };
+
+        img.onload = () => {
+          canvas.width = img.height;
+          canvas.height = img.width;
+          ctx.rotate(-90 * Math.PI / 180); // Rotate 90 degrees
+          ctx.drawImage(img, -img.width, 0);
+          canvas.toBlob((blob) => resolve(blob), 'image/jpeg');
+        };
+
+        reader.readAsDataURL(file);
+      });
+    }
 
     async function checkStatus() {
       const imageFile = document.getElementById('imageInput').files[0];
@@ -77,13 +101,20 @@
       const resultDiv = document.getElementById('result');
       resultDiv.innerHTML = '🔍 Processing image...';
 
-      const { data: { text } } = await Tesseract.recognize(
-        imageFile,
-        'eng',
-        { logger: m => console.log(m) }
-      );
+      // Try both original and rotated image
+      const [originalText, rotatedText] = await Promise.all([
+        Tesseract.recognize(imageFile, 'eng', { logger: m => console.log('Original OCR:', m) }).then(r => r.data.text),
+        rotateImage(imageFile).then(rotated => 
+          Tesseract.recognize(rotated, 'eng', { logger: m => console.log('Rotated OCR:', m) }).then(r => r.data.text)
+        )
+      ]);
 
-      const extractedOrderNumber = text.match(/\d{4,}/)?.[0];
+      console.log("Original OCR Text:\n", originalText);
+      console.log("Rotated OCR Text:\n", rotatedText);
+
+      // Combine both results
+      const combinedText = originalText + "\n" + rotatedText;
+      const extractedOrderNumber = combinedText.match(/\d{5,}/)?.[0]; // Match 5+ digit number
 
       if (!extractedOrderNumber) {
         resultDiv.innerHTML = '<span class="not-scheduled">❌ No valid order number found in image.</span>';
