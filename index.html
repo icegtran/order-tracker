@@ -40,7 +40,6 @@
   <script>
     let scheduledOrders = new Set();
 
-    // Load scheduled orders from Excel
     document.getElementById('excelInput').addEventListener('change', (event) => {
       const file = event.target.files[0];
       const reader = new FileReader();
@@ -55,7 +54,6 @@
         json.forEach(row => {
           const status = row['__EMPTY_9']?.toString().trim().toLowerCase();
           const orderNumber = row['__EMPTY_7']?.toString().trim();
-
           if (status === 'scheduled' && orderNumber) {
             scheduledOrders.add(orderNumber);
           }
@@ -67,7 +65,6 @@
       reader.readAsArrayBuffer(file);
     });
 
-    // Rotate image 90 degrees for better OCR on vertical numbers
     function rotateImage(file) {
       return new Promise((resolve) => {
         const img = new Image();
@@ -101,30 +98,31 @@
       const resultDiv = document.getElementById('result');
       resultDiv.innerHTML = '🔍 Processing image...';
 
-      // Try both original and rotated image
       const [originalText, rotatedText] = await Promise.all([
         Tesseract.recognize(imageFile, 'eng', { logger: m => console.log('Original OCR:', m) }).then(r => r.data.text),
-        rotateImage(imageFile).then(rotated => 
+        rotateImage(imageFile).then(rotated =>
           Tesseract.recognize(rotated, 'eng', { logger: m => console.log('Rotated OCR:', m) }).then(r => r.data.text)
         )
       ]);
 
-      console.log("Original OCR Text:\n", originalText);
-      console.log("Rotated OCR Text:\n", rotatedText);
+      const combinedText = (originalText + "\n" + rotatedText).replace(/\s+/g, '');
+      console.log("Combined OCR Text:", combinedText);
 
-      // Combine both results
-      const combinedText = originalText + "\n" + rotatedText;
-      const extractedOrderNumber = combinedText.match(/\d{5,}/)?.[0]; // Match 5+ digit number
+      const matches = combinedText.match(/\d{5,}/g); // All numbers 5+ digits
+      console.log("Extracted numbers:", matches);
 
-      if (!extractedOrderNumber) {
+      if (!matches || matches.length === 0) {
         resultDiv.innerHTML = '<span class="not-scheduled">❌ No valid order number found in image.</span>';
         return;
       }
 
-      const isScheduled = scheduledOrders.has(extractedOrderNumber);
-      resultDiv.innerHTML = isScheduled
-        ? `<span class="scheduled">✅ Order #${extractedOrderNumber} is Scheduled.</span>`
-        : `<span class="not-scheduled">❌ Order #${extractedOrderNumber} is NOT Scheduled.</span>`;
+      const match = matches.find(num => scheduledOrders.has(num));
+
+      if (match) {
+        resultDiv.innerHTML = `<span class="scheduled">✅ Order #${match} is Scheduled.</span>`;
+      } else {
+        resultDiv.innerHTML = `<span class="not-scheduled">❌ None of the detected order numbers (${matches.join(', ')}) are Scheduled.</span>`;
+      }
     }
   </script>
 </body>
