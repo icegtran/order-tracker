@@ -12,13 +12,6 @@
       padding: 20px;
       text-align: center;
     }
-    video, canvas {
-      width: 100%;
-      max-width: 400px;
-      margin: 10px auto;
-      border-radius: 10px;
-      border: 1px solid #ccc;
-    }
     .result {
       margin-top: 20px;
       font-size: 1.2em;
@@ -30,6 +23,11 @@
     .not-scheduled {
       color: red;
     }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      margin: 10px;
+    }
   </style>
 </head>
 <body>
@@ -39,8 +37,7 @@
   <input type="file" id="excelInput" accept=".xlsx, .xls" /><br/><br/>
 
   <button id="startScan">📷 Start Scanning</button>
-  <div id="scanner-container"></div>
-  <div class="result" id="result">📡 Waiting for scan...</div>
+  <div class="result" id="result">📡 Waiting to scan...</div>
 
   <script>
     const scheduledOrders = new Set();
@@ -48,44 +45,60 @@
     let scanner = null;
     let lastScanned = "";
 
-    // Load Excel
+    // ✅ Load Excel File
     document.getElementById("excelInput").addEventListener("change", (event) => {
       const file = event.target.files[0];
       const reader = new FileReader();
+
       reader.onload = function (e) {
-        const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: "array" });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(sheet);
-        scheduledOrders.clear();
-        json.forEach(row => {
-          const status = row["__EMPTY_9"]?.toString().trim().toLowerCase();
-          const orderNumber = row["__EMPTY_7"]?.toString().trim();
-          if (status === "scheduled" && orderNumber) {
-            scheduledOrders.add(orderNumber);
-          }
-        });
-        alert("✅ Excel loaded with " + scheduledOrders.size + " scheduled orders.");
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: "array" });
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          const json = XLSX.utils.sheet_to_json(sheet);
+
+          scheduledOrders.clear();
+          json.forEach((row) => {
+            const status = row["__EMPTY_9"]?.toString().trim().toLowerCase();
+            const orderNumber = row["__EMPTY_7"]?.toString().trim();
+            if (status === "scheduled" && orderNumber) {
+              scheduledOrders.add(orderNumber);
+            }
+          });
+
+          console.log("✅ Excel loaded:", scheduledOrders.size, "scheduled orders");
+          alert("✅ Excel loaded with " + scheduledOrders.size + " scheduled orders.");
+        } catch (excelError) {
+          console.error("❌ Excel load error:", excelError);
+          alert("Failed to parse Excel file. See console for details.");
+        }
       };
+
       reader.readAsArrayBuffer(file);
     });
 
+    // ✅ Start Scanner
     document.getElementById("startScan").addEventListener("click", async () => {
-      if (scanner) return; // already scanning
+      console.log("▶️ Starting scanner");
 
-Dynamsoft.DBR.BarcodeScanner.license = "DLS2eyJoYW5kc2hha2VDb2RlIjoiMTA0MzQ4NzgyLU1UQTBNelE0TnpneUxYZGxZaTFVY21saGJGQnliMm8iLCJtYWluU2VydmVyVVJMIjoiaHR0cHM6Ly9tZGxzLmR5bmFtc29mdG9ubGluZS5jb20iLCJvcmdhbml6YXRpb25JRCI6IjEwNDM0ODc4MiIsInN0YW5kYnlTZXJ2ZXJVUkwiOiJodHRwczovL3NkbHMuZHluYW1zb2Z0b25saW5lLmNvbSIsImNoZWNrQ29kZSI6LTczNDgyNTc3NH0=";
+      Dynamsoft.DBR.BarcodeScanner.license = "DLS2eyJoYW5kc2hha2VDb2RlIjoiMTA0MzQ4NzgyLU1UQTBNelE0TnpneUxYZGxZaTFVY21saGJGQnliMm8iLCJtYWluU2VydmVyVVJMIjoiaHR0cHM6Ly9tZGxzLmR5bmFtc29mdG9ubGluZS5jb20iLCJvcmdhbml6YXRpb25JRCI6IjEwNDM0ODc4MiIsInN0YW5kYnlTZXJ2ZXJVUkwiOiJodHRwczovL3NkbHMuZHluYW1zb2Z0b25saW5lLmNvbSIsImNoZWNrQ29kZSI6LTczNDgyNTc3NH0=";
+
       try {
         scanner = await Dynamsoft.DBR.BarcodeScanner.createInstance();
         await scanner.updateRuntimeSettings("speed");
-        await scanner.setVideoSettings({ video: { facingMode: "environment" } });
-        await scanner.setUIElement(document.getElementById("scanner-container"));
+
+        // ❌ Removed setUIElement (caused error previously)
         await scanner.open();
 
-        scanner.onFrameRead = results => {
+        console.log("✅ Scanner is live");
+
+        scanner.onFrameRead = (results) => {
           for (let result of results) {
             const code = result.barcodeText.trim();
             if (code === lastScanned) return;
             lastScanned = code;
+
+            console.log("📦 Scanned:", code);
 
             const isScheduled = scheduledOrders.has(code);
             resultDiv.innerHTML = isScheduled
@@ -93,16 +106,17 @@ Dynamsoft.DBR.BarcodeScanner.license = "DLS2eyJoYW5kc2hha2VDb2RlIjoiMTA0MzQ4Nzgy
               : `<span class="not-scheduled">❌ Order #${code} is NOT Scheduled.</span>`;
 
             setTimeout(() => {
-              resultDiv.innerText = "📷 Scanning...";
+              resultDiv.innerText = "📡 Scanning...";
               lastScanned = "";
             }, 2000);
+
             break;
           }
         };
 
-      } catch (ex) {
-        console.error(ex);
-        resultDiv.innerHTML = '<span class="not-scheduled">❌ Failed to start scanner.</span>';
+      } catch (err) {
+        console.error("❌ Failed to start scanner:", err);
+        resultDiv.innerHTML = `<span class="not-scheduled">❌ Scanner error: ${err.message}</span>`;
       }
     });
   </script>
